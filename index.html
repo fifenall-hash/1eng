@@ -224,10 +224,10 @@
       z-index: 10;
     }
 
-    /* 59열 정밀 스태거드 QWERTY 키보드 그리드 (모든 알파벳 키 1개 = 정확히 5칸 고정) */
+    /* 69열 정밀 스태거드 QWERTY 키보드 그리드 (모든 알파벳 키 1개 = 정확히 5칸 고정) */
     .kb-row-grid {
       display: grid;
-      grid-template-columns: repeat(59, minmax(0, 1fr));
+      grid-template-columns: repeat(69, minmax(0, 1fr));
     }
 
     @keyframes popIn {
@@ -1635,15 +1635,21 @@ self.addEventListener('fetch', (event) => {
     ];
 
     /* ==========================================================================
-       2. 영문 QWERTY 59열 키보드 배열 및 자음·모음·대소문자 매핑
+       2. 영문 QWERTY 69열 키보드 배열 및 왼손(파랑)·오른손(노랑)·대소문자 매핑
        ========================================================================== */
-    const ENGLISH_VOWELS = ['a', 'e', 'i', 'o', 'u', 'A', 'E', 'I', 'O', 'U'];
+    const RIGHT_HAND_KEYS = [
+      'y', 'u', 'i', 'o', 'p',
+      'h', 'j', 'k', 'l',
+      'n', 'm',
+      'Y', 'U', 'I', 'O', 'P',
+      'H', 'J', 'K', 'L',
+      'N', 'M'
+    ];
 
-    // 59열 정밀 그리드: 모든 알파벳 키는 span 5로 100% 동일 크기 유지
+    // 69열 정밀 그리드: 모든 알파벳 키는 span 5로 100% 동일 크기 유지, L과 엔터 사이 키 2개(span 10) 여유 공간 배치
     const KEYBOARD_LAYOUT_ROWS = [
       [
-        { type: 'status', span: 49 },
-        { type: 'backspace', label: '지우기', span: 10 }
+        { type: 'status', span: 69 }
       ],
       [
         { type: 'spacer', span: 1 },
@@ -1657,7 +1663,7 @@ self.addEventListener('fetch', (event) => {
         { type: 'letter', key: 'i', span: 5 },
         { type: 'letter', key: 'o', span: 5 },
         { type: 'letter', key: 'p', span: 5 },
-        { type: 'spacer', span: 8 }
+        { type: 'spacer', span: 18 }
       ],
       [
         { type: 'spacer', span: 3 },
@@ -1670,6 +1676,7 @@ self.addEventListener('fetch', (event) => {
         { type: 'letter', key: 'j', span: 5 },
         { type: 'letter', key: 'k', span: 5 },
         { type: 'letter', key: 'l', span: 5 },
+        { type: 'spacer', span: 10 },
         { type: 'enter', label: '엔터', span: 11 }
       ],
       [
@@ -1681,7 +1688,7 @@ self.addEventListener('fetch', (event) => {
         { type: 'letter', key: 'b', span: 5 },
         { type: 'letter', key: 'n', span: 5 },
         { type: 'letter', key: 'm', span: 5 },
-        { type: 'spacer', span: 5 },
+        { type: 'spacer', span: 15 },
         { type: 'shift', label: '쉬프트', span: 13 }
       ]
     ];
@@ -1704,8 +1711,6 @@ self.addEventListener('fetch', (event) => {
       },
 
       shiftHeld: false,
-      shiftSticky: false,
-      shiftUsedWhileHeld: false,
 
       typingbasic: {
         index: 0,
@@ -2320,8 +2325,7 @@ self.addEventListener('fetch', (event) => {
       playSoundEffect('tap');
       stopListenAutoRepeat();
       state.mode = newMode;
-      state.shiftHeld = false;
-      state.shiftSticky = false;
+      clearAllShiftStates();
 
       const styles = {
         typingbasic: ['bg-amber-400 text-white border-amber-500', 'bg-white text-amber-700 border-amber-200'],
@@ -2371,18 +2375,81 @@ self.addEventListener('fetch', (event) => {
     }
 
     /* ==========================================================================
-       7. 모드 1: [알파벳(기본)] & 모드 2: [타이핑(심화)] + QWERTY 키보드 제어
+       7. 모드 1: [타이핑(기본)] & 모드 2: [타이핑(심화)] + QWERTY 키보드 제어
        ========================================================================== */
+    const activeShiftPointers = new Set();
+    let physicalShiftHeld = false;
+
     function isShiftActive() {
-      return state.shiftHeld || state.shiftSticky;
+      return state.shiftHeld;
     }
+
+    function syncShiftState() {
+      const nextShift = activeShiftPointers.size > 0 || physicalShiftHeld;
+      if (state.shiftHeld !== nextShift) {
+        state.shiftHeld = nextShift;
+        updateKeypadShiftVisuals();
+      }
+    }
+
+    function clearAllShiftStates() {
+      activeShiftPointers.clear();
+      physicalShiftHeld = false;
+      state.shiftHeld = false;
+    }
+
+    // 멀티터치 중 DOM 재생성으로 인해 터치 포인터가 끊기지 않도록 키캡 표기만 즉시 갱신
+    function updateKeypadShiftVisuals() {
+      const containerId = state.mode === 'typingbasic' ? 'keypad-keyboard-basic' : 'keypad-keyboard';
+      const kbContainer = document.getElementById(containerId);
+      if (!kbContainer) return;
+
+      const showUppercase = isShiftActive();
+
+      kbContainer.querySelectorAll('[data-base-key]').forEach((btn) => {
+        const baseKey = btn.dataset.baseKey;
+        const displayKey = showUppercase ? baseKey.toUpperCase() : baseKey.toLowerCase();
+        btn.dataset.letter = displayKey;
+        const span = btn.querySelector('span');
+        if (span) span.textContent = displayKey;
+      });
+
+      kbContainer.querySelectorAll('[data-role="shift"]').forEach((btn) => {
+        btn.classList.toggle('keycap-shift-active', showUppercase);
+      });
+
+      const statusMsgEl = kbContainer.querySelector('[data-role="shift-status"]');
+      if (statusMsgEl) {
+        statusMsgEl.textContent = showUppercase
+          ? '⚡ 쉬프트 누르는 중 (대문자 A~Z)'
+          : '💡 기본 소문자 a~z (대문자는 [⇧ 쉬프트]를 누른 채로 입력하세요)';
+      }
+    }
+
+    window.addEventListener('pointerup', (e) => {
+      if (activeShiftPointers.has(e.pointerId)) {
+        activeShiftPointers.delete(e.pointerId);
+        syncShiftState();
+      }
+    });
+
+    window.addEventListener('pointercancel', (e) => {
+      if (activeShiftPointers.has(e.pointerId)) {
+        activeShiftPointers.delete(e.pointerId);
+        syncShiftState();
+      }
+    });
+
+    window.addEventListener('blur', () => {
+      clearAllShiftStates();
+      updateKeypadShiftVisuals();
+    });
 
     function setupTypingBasicQuestion() {
       state.typingbasic.currentStrokes = [];
       state.typingbasic.readyToSubmit = false;
       state.typingbasic.completed = false;
-      state.shiftHeld = false;
-      state.shiftSticky = false;
+      clearAllShiftStates();
       renderTypingBasicView();
     }
 
@@ -2463,8 +2530,7 @@ self.addEventListener('fetch', (event) => {
       state.word.completedSlots = chars.map(() => null);
       state.word.readyToSubmit = false;
       state.word.completed = false;
-      state.shiftHeld = false;
-      state.shiftSticky = false;
+      clearAllShiftStates();
       renderWordView();
     }
 
@@ -2488,7 +2554,7 @@ self.addEventListener('fetch', (event) => {
         const krName = LETTER_NAME_KR[nextChar] || nextChar;
         const isUpperNext = nextChar === nextChar.toUpperCase() && nextChar !== nextChar.toLowerCase();
         if (isUpperNext) {
-          guideEl.innerHTML = `첫 글자는 대문자예요! <strong>[ ⇧ 쉬프트 ]</strong>를 누르고 <strong class="text-rose-600">[ ${nextChar} (${krName}) ]</strong> 글쇠를 눌러 보세요!`;
+          guideEl.innerHTML = `첫 글자는 대문자예요! <strong>[ ⇧ 쉬프트 ]</strong>를 누른 채로 <strong class="text-rose-600">[ ${nextChar} (${krName}) ]</strong> 글쇠를 눌러 보세요!`;
         } else {
           guideEl.innerHTML = `네모 칸 위에서 빨갛게 빛나는 소문자 <strong class="text-rose-600">[ ${nextChar} (${krName}) ]</strong> 글쇠를 찾아 눌러 보세요!`;
         }
@@ -2552,7 +2618,7 @@ self.addEventListener('fetch', (event) => {
         (state.mode === 'typingbasic' && state.typingbasic.readyToSubmit && !state.typingbasic.completed) ||
         (state.mode === 'word' && state.word.readyToSubmit && !state.word.completed);
 
-      // 기본 상태는 소문자(a~z)로 표시하며, [⇧ 쉬프트]를 눌렀을 때만 대문자(A~Z)로 전환
+      // 기본 상태는 소문자(a~z)로 표시하며, [⇧ 쉬프트]를 누르고 있을 때만 대문자(A~Z)로 전환
       const showUppercase = shiftOn;
 
       KEYBOARD_LAYOUT_ROWS.forEach((rowItems) => {
@@ -2570,11 +2636,11 @@ self.addEventListener('fetch', (event) => {
           if (item.type === 'status') {
             const st = document.createElement('div');
             st.style.gridColumn = `span ${item.span} / span ${item.span}`;
-            st.className = 'flex items-center gap-2.5 px-2 text-xs text-slate-700 select-none';
+            st.className = 'flex items-center gap-3 px-2 py-0.5 text-xs text-slate-700 select-none';
             st.innerHTML = `
-              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-sky-500 border border-white"></span>자음 Consonants(파랑)</span>
-              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-400 border border-white"></span>모음 A·E·I·O·U(노랑)</span>
-              <span class="inline text-purple-700 font-bold">${showUppercase ? '⚡ 쉬프트 켜짐 (대문자 A~Z)' : '💡 기본 소문자 a~z (대문자는 [⇧ 쉬프트]를 누르세요)'}</span>
+              <span class="inline-flex items-center gap-1 font-bold text-sky-700"><span class="w-2.5 h-2.5 rounded-full bg-sky-400 border border-sky-600"></span>왼손 키(파랑)</span>
+              <span class="inline-flex items-center gap-1 font-bold text-amber-700"><span class="w-2.5 h-2.5 rounded-full bg-amber-300 border border-amber-500"></span>오른손 키(노랑)</span>
+              <span data-role="shift-status" class="inline text-purple-700 font-bold">${showUppercase ? '⚡ 쉬프트 누르는 중 (대문자 A~Z)' : '💡 기본 소문자 a~z (대문자는 [⇧ 쉬프트]를 누른 채로 입력하세요)'}</span>
             `;
             rowEl.appendChild(st);
             return;
@@ -2584,49 +2650,47 @@ self.addEventListener('fetch', (event) => {
           btn.type = 'button';
           btn.style.gridColumn = `span ${item.span} / span ${item.span}`;
 
-          if (item.type === 'backspace') {
-            btn.className = 'keycap-base keycap-action py-2 flex items-center justify-center gap-1 text-sm font-bold';
-            btn.innerHTML = `<span class="relative z-10 text-base">⌫</span><span class="relative z-10">${item.label}</span>`;
-            btn.onclick = () => handleKeypadBackspace();
-          } else if (item.type === 'enter') {
+          if (item.type === 'enter') {
             btn.className = `keycap-base keycap-enter ${enterReady ? 'keycap-enter-ready' : ''} py-2.5 flex items-center justify-center gap-1 text-sm font-bold`;
             btn.innerHTML = `<span class="relative z-10 text-base">⏎</span><span class="relative z-10">${item.label}</span>`;
-            btn.onclick = () => handleKeypadEnter(btn);
+            btn.addEventListener('pointerdown', (e) => {
+              e.preventDefault();
+              handleKeypadEnter(btn);
+            });
           } else if (item.type === 'shift') {
+            btn.dataset.role = 'shift';
             btn.className = `keycap-base keycap-shift ${shiftOn ? 'keycap-shift-active' : ''} py-2.5 flex items-center justify-center gap-1 text-sm font-bold`;
             btn.innerHTML = `<span class="relative z-10 text-base">⇧</span><span class="relative z-10">${item.label}</span>`;
 
             btn.addEventListener('pointerdown', (e) => {
               e.preventDefault();
+              try { btn.setPointerCapture(e.pointerId); } catch (err) {}
               playSoundEffect('tap');
-              if (state.shiftSticky && !state.shiftHeld) {
-                state.shiftSticky = false;
-                state.shiftHeld = false;
-                state.shiftUsedWhileHeld = true;
-              } else {
-                state.shiftHeld = true;
-                state.shiftUsedWhileHeld = false;
-              }
-              renderQwertyKeypad();
+              activeShiftPointers.add(e.pointerId);
+              syncShiftState();
             });
 
             const releaseShift = (e) => {
               e.preventDefault();
-              if (state.shiftHeld) {
-                state.shiftHeld = false;
-                if (!state.shiftUsedWhileHeld) state.shiftSticky = true;
-                renderQwertyKeypad();
+              if (activeShiftPointers.has(e.pointerId)) {
+                activeShiftPointers.delete(e.pointerId);
+                syncShiftState();
               }
             };
             btn.addEventListener('pointerup', releaseShift);
             btn.addEventListener('pointercancel', releaseShift);
+            btn.addEventListener('lostpointercapture', releaseShift);
           } else {
             const displayKey = showUppercase ? item.key.toUpperCase() : item.key.toLowerCase();
-            const isVowel = ENGLISH_VOWELS.includes(displayKey);
+            const isRightHand = RIGHT_HAND_KEYS.includes(displayKey);
+            btn.dataset.baseKey = item.key;
             btn.dataset.letter = displayKey;
-            btn.className = `keycap-base ${isVowel ? 'keycap-vowel' : 'keycap-consonant'} keycap-text py-2.5 flex items-center justify-center font-bold`;
+            btn.className = `keycap-base ${isRightHand ? 'keycap-vowel' : 'keycap-consonant'} keycap-text py-2.5 flex items-center justify-center font-bold`;
             btn.innerHTML = `<span class="relative z-10">${displayKey}</span>`;
-            btn.onclick = () => handleKeypadInput(displayKey, btn);
+            btn.addEventListener('pointerdown', (e) => {
+              e.preventDefault();
+              handleKeypadInput(btn.dataset.letter, btn);
+            });
           }
 
           rowEl.appendChild(btn);
@@ -2634,11 +2698,6 @@ self.addEventListener('fetch', (event) => {
 
         kbContainer.appendChild(rowEl);
       });
-    }
-
-    function consumeShiftAfterStroke() {
-      if (state.shiftHeld) state.shiftUsedWhileHeld = true;
-      if (state.shiftSticky) state.shiftSticky = false;
     }
 
     function handleKeypadInput(letter, btnEl) {
@@ -2656,7 +2715,6 @@ self.addEventListener('fetch', (event) => {
         if (letter === expected) {
           playSoundEffect('combine');
           state.typingbasic.currentStrokes.push(letter);
-          consumeShiftAfterStroke();
 
           if (state.typingbasic.currentStrokes.length === targetChars.length) {
             state.typingbasic.readyToSubmit = true;
@@ -2674,7 +2732,7 @@ self.addEventListener('fetch', (event) => {
         return;
       }
 
-      // 모드 2: 타이핑(심화) — 소문자 기본 전제 + 첫 글자 대문자는 쉬프트를 눌러 대문자로 입력해야 정답 처리
+      // 모드 2: 타이핑(심화) — 소문자 기본 전제 + 첫 글자 대문자는 쉬프트를 누른 채로 입력해야 정답 처리
       if (state.word.completed || state.word.readyToSubmit) {
         playSoundEffect('wrong');
         return;
@@ -2689,7 +2747,6 @@ self.addEventListener('fetch', (event) => {
         playSoundEffect('combine');
         state.word.completedSlots[state.word.activeSlot] = expectedChar;
         state.word.activeSlot += 1;
-        consumeShiftAfterStroke();
 
         if (state.word.activeSlot >= chars.length) {
           state.word.readyToSubmit = true;
@@ -2795,15 +2852,13 @@ self.addEventListener('fetch', (event) => {
       if (modals.some((id) => { const m = document.getElementById(id); return m && !m.classList.contains('hidden'); })) return;
 
       if (e.key === 'Shift') {
-        if (!state.shiftHeld) {
-          state.shiftHeld = true;
-          state.shiftUsedWhileHeld = false;
-          renderQwertyKeypad();
+        if (!physicalShiftHeld) {
+          physicalShiftHeld = true;
+          syncShiftState();
         }
         return;
       }
       if (e.key === 'Enter') { e.preventDefault(); handleKeypadEnter(null); return; }
-      if (e.key === 'Backspace') { e.preventDefault(); handleKeypadBackspace(); return; }
       if (e.repeat) return;
 
       if (e.code && /^Key[A-Z]$/.test(e.code)) {
@@ -2819,9 +2874,9 @@ self.addEventListener('fetch', (event) => {
     });
 
     window.addEventListener('keyup', (e) => {
-      if (e.key === 'Shift' && state.shiftHeld) {
-        state.shiftHeld = false;
-        renderQwertyKeypad();
+      if (e.key === 'Shift' && physicalShiftHeld) {
+        physicalShiftHeld = false;
+        syncShiftState();
       }
     });
 
